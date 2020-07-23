@@ -1,20 +1,11 @@
 import * as React from 'react';
-import {
-  Animated,
-  LayoutChangeEvent,
-  PanResponder,
-  PanResponderInstance,
-  Platform,
-  PlatformOSType,
-  StyleSheet,
-  View
-} from 'react-native';
+import { Animated, LayoutChangeEvent, PanResponder, StyleSheet, View } from 'react-native';
 import styles from './image-zoom.style';
-import { ICenterOn, Props, State } from './image-zoom.type';
+import { ICenterOn, ImageZoomProps, ImageZoomState } from './image-zoom.type';
 
-export default class ImageViewer extends React.Component<Props, State> {
-  public static defaultProps = new Props();
-  public state = new State();
+export default class ImageViewer extends React.Component<ImageZoomProps, ImageZoomState> {
+  public static defaultProps = new ImageZoomProps();
+  public state = new ImageZoomState();
 
   // 上次/当前/动画 x 位移
   private lastPositionX: number | null = null;
@@ -33,7 +24,7 @@ export default class ImageViewer extends React.Component<Props, State> {
   private zoomCurrentDistance = 0;
 
   // 上次手按下去的时间
-  private lastTouchStartTime: number = 0;
+  private lastTouchStartTime = 0;
 
   // 滑动过程中，整体横向过界偏移量
   private horizontalWholeOuterCounter = 0;
@@ -50,10 +41,10 @@ export default class ImageViewer extends React.Component<Props, State> {
   private centerDiffY = 0;
 
   // 触发单击的 timeout
-  private singleClickTimeout: any;
+  private singleClickTimeout: number | undefined;
 
   // 计算长按的 timeout
-  private longPressTimeout: any;
+  private longPressTimeout: number | undefined;
 
   // 上一次点击的时间
   private lastClickTime = 0;
@@ -74,10 +65,11 @@ export default class ImageViewer extends React.Component<Props, State> {
   // 图片手势处理
   private imagePanResponder = PanResponder.create({
     // 要求成为响应者：
-    onStartShouldSetPanResponder: () => true,
-    onPanResponderTerminationRequest: () => false,
+    onStartShouldSetPanResponder: this.props.onStartShouldSetPanResponder,
+    onPanResponderTerminationRequest: this.props.onPanResponderTerminationRequest,
+    onMoveShouldSetPanResponder: this.props.onMoveShouldSetPanResponder,
 
-    onPanResponderGrant: evt => {
+    onPanResponderGrant: (evt) => {
       // 开始手势操作
       this.lastPositionX = null;
       this.lastPositionY = null;
@@ -106,10 +98,11 @@ export default class ImageViewer extends React.Component<Props, State> {
       if (this.longPressTimeout) {
         clearTimeout(this.longPressTimeout);
       }
+      const { locationX, locationY, pageX, pageY } = evt.nativeEvent;
       this.longPressTimeout = setTimeout(() => {
         this.isLongPress = true;
         if (this.props.onLongPress) {
-          this.props.onLongPress();
+          this.props.onLongPress({ locationX, locationY, pageX, pageY });
         }
       }, this.props.longPressTime);
 
@@ -118,8 +111,18 @@ export default class ImageViewer extends React.Component<Props, State> {
         if (new Date().getTime() - this.lastClickTime < (this.props.doubleClickInterval || 0)) {
           // 认为触发了双击
           this.lastClickTime = 0;
+
+          // 因为可能触发放大，因此记录双击时的坐标位置
+          this.doubleClickX = evt.nativeEvent.changedTouches[0].pageX;
+          this.doubleClickY = evt.nativeEvent.changedTouches[0].pageY;
+
           if (this.props.onDoubleClick) {
-            this.props.onDoubleClick();
+            this.props.onDoubleClick({
+              locationX: evt.nativeEvent.changedTouches[0].locationX,
+              locationY: evt.nativeEvent.changedTouches[0].locationY,
+              pageX: this.doubleClickX,
+              pageY: this.doubleClickY,
+            });
           }
 
           // 取消长按
@@ -163,18 +166,18 @@ export default class ImageViewer extends React.Component<Props, State> {
               Animated.timing(this.animatedScale, {
                 toValue: this.scale,
                 duration: 100,
-                useNativeDriver: false
+                useNativeDriver: !!this.props.useNativeDriver,
               }),
               Animated.timing(this.animatedPositionX, {
                 toValue: this.positionX,
                 duration: 100,
-                useNativeDriver: false
+                useNativeDriver: !!this.props.useNativeDriver,
               }),
               Animated.timing(this.animatedPositionY, {
                 toValue: this.positionY,
                 duration: 100,
-                useNativeDriver: false
-              })
+                useNativeDriver: !!this.props.useNativeDriver,
+              }),
             ]).start();
           }
         } else {
@@ -388,11 +391,11 @@ export default class ImageViewer extends React.Component<Props, State> {
             const distanceDiff = (this.zoomCurrentDistance - this.zoomLastDistance) / 200;
             let zoom = this.scale + distanceDiff;
 
-            if (zoom < (this!.props!.minScale || 0)) {
-              zoom = this!.props!.minScale || 0;
+            if (zoom < (this.props.minScale || 0)) {
+              zoom = this.props.minScale || 0;
             }
-            if (zoom > (this!.props!.maxScale || 0)) {
-              zoom = this!.props!.maxScale || 0;
+            if (zoom > (this.props.maxScale || 0)) {
+              zoom = this.props.maxScale || 0;
             }
 
             // 记录之前缩放比例
@@ -456,17 +459,17 @@ export default class ImageViewer extends React.Component<Props, State> {
     },
     onPanResponderTerminate: () => {
       //
-    }
+    },
   });
 
-  public resetScale = () => {
+  public resetScale = (): void => {
     this.positionX = 0;
     this.positionY = 0;
     this.scale = 1;
     this.animatedScale.setValue(1);
   };
 
-  public panResponderReleaseResolve = () => {
+  public panResponderReleaseResolve = (): void => {
     // 判断是否是 swipeDown
     if (this.props.enableSwipeDown && this.props.swipeDownThreshold) {
       if (this.swipeDownOffset > this.props.swipeDownThreshold) {
@@ -484,7 +487,7 @@ export default class ImageViewer extends React.Component<Props, State> {
       Animated.timing(this.animatedScale, {
         toValue: this.scale,
         duration: 100,
-        useNativeDriver: false
+        useNativeDriver: !!this.props.useNativeDriver,
       }).start();
     }
 
@@ -494,7 +497,7 @@ export default class ImageViewer extends React.Component<Props, State> {
       Animated.timing(this.animatedPositionX, {
         toValue: this.positionX,
         duration: 100,
-        useNativeDriver: false
+        useNativeDriver: !!this.props.useNativeDriver,
       }).start();
     }
 
@@ -504,7 +507,7 @@ export default class ImageViewer extends React.Component<Props, State> {
       Animated.timing(this.animatedPositionY, {
         toValue: this.positionY,
         duration: 100,
-        useNativeDriver: false
+        useNativeDriver: !!this.props.useNativeDriver,
       }).start();
     }
 
@@ -521,7 +524,7 @@ export default class ImageViewer extends React.Component<Props, State> {
       Animated.timing(this.animatedPositionY, {
         toValue: this.positionY,
         duration: 100,
-        useNativeDriver: false
+        useNativeDriver: !!this.props.useNativeDriver,
       }).start();
     }
 
@@ -536,7 +539,7 @@ export default class ImageViewer extends React.Component<Props, State> {
       Animated.timing(this.animatedPositionX, {
         toValue: this.positionX,
         duration: 100,
-        useNativeDriver: false
+        useNativeDriver: !!this.props.useNativeDriver,
       }).start();
     }
 
@@ -547,12 +550,12 @@ export default class ImageViewer extends React.Component<Props, State> {
       Animated.timing(this.animatedPositionX, {
         toValue: this.positionX,
         duration: 100,
-        useNativeDriver: false
+        useNativeDriver: !!this.props.useNativeDriver,
       }).start();
       Animated.timing(this.animatedPositionY, {
         toValue: this.positionY,
         duration: 100,
-        useNativeDriver: false
+        useNativeDriver: !!this.props.useNativeDriver,
       }).start();
     }
 
@@ -565,13 +568,13 @@ export default class ImageViewer extends React.Component<Props, State> {
     this.imageDidMove('onPanResponderRelease');
   };
 
-  public componentDidMount() {
+  public componentDidMount(): void {
     if (this.props.centerOn) {
       this.centerOn(this.props.centerOn);
     }
   }
 
-  public componentDidUpdate(prevProps: Props) {
+  public componentDidUpdate(prevProps: ImageZoomProps): void {
     // Either centerOn has never been called, or it is a repeat and we should ignore it
     if (
       (this.props.centerOn && !prevProps.centerOn) ||
@@ -581,14 +584,14 @@ export default class ImageViewer extends React.Component<Props, State> {
     }
   }
 
-  public imageDidMove(type: string) {
+  public imageDidMove(type: string): void {
     if (this.props.onMove) {
       this.props.onMove({
         type,
         positionX: this.positionX,
         positionY: this.positionY,
         scale: this.scale,
-        zoomCurrentDistance: this.zoomCurrentDistance
+        zoomCurrentDistance: this.zoomCurrentDistance,
       });
     }
   }
@@ -596,31 +599,31 @@ export default class ImageViewer extends React.Component<Props, State> {
   public didCenterOnChange(
     params: { x: number; y: number; scale: number; duration: number },
     paramsNext: { x: number; y: number; scale: number; duration: number }
-  ) {
+  ): boolean {
     return params.x !== paramsNext.x || params.y !== paramsNext.y || params.scale !== paramsNext.scale;
   }
 
-  public centerOn(params: ICenterOn) {
-    this.positionX = params!.x;
-    this.positionY = params!.y;
-    this.scale = params!.scale;
-    const duration = params!.duration || 300;
+  public centerOn(params: ICenterOn): void {
+    this.positionX = params.x;
+    this.positionY = params.y;
+    this.scale = params.scale;
+    const duration = params.duration || 300;
     Animated.parallel([
       Animated.timing(this.animatedScale, {
         toValue: this.scale,
         duration,
-        useNativeDriver: false
+        useNativeDriver: !!this.props.useNativeDriver,
       }),
       Animated.timing(this.animatedPositionX, {
         toValue: this.positionX,
         duration,
-        useNativeDriver: false
+        useNativeDriver: !!this.props.useNativeDriver,
       }),
       Animated.timing(this.animatedPositionY, {
         toValue: this.positionY,
         duration,
-        useNativeDriver: false
-      })
+        useNativeDriver: !!this.props.useNativeDriver,
+      }),
     ]).start(() => {
       this.imageDidMove('centerOn');
     });
@@ -629,7 +632,7 @@ export default class ImageViewer extends React.Component<Props, State> {
   /**
    * 图片区域视图渲染完毕
    */
-  public handleLayout(event: LayoutChangeEvent) {
+  public handleLayout(event: LayoutChangeEvent): void {
     if (this.props.layoutChange) {
       this.props.layoutChange(event);
     }
@@ -638,7 +641,7 @@ export default class ImageViewer extends React.Component<Props, State> {
   /**
    * 重置大小和位置
    */
-  public reset() {
+  public reset(): void {
     this.scale = 1;
     this.animatedScale.setValue(this.scale);
     this.positionX = 0;
@@ -647,19 +650,19 @@ export default class ImageViewer extends React.Component<Props, State> {
     this.animatedPositionY.setValue(this.positionY);
   }
 
-  public render() {
+  public render(): React.ReactNode {
     const animateConf = {
       transform: [
         {
-          scale: this.animatedScale
+          scale: this.animatedScale,
         },
         {
-          translateX: this.animatedPositionX
+          translateX: this.animatedPositionX,
         },
         {
-          translateY: this.animatedPositionY
-        }
-      ]
+          translateY: this.animatedPositionY,
+        },
+      ],
     };
 
     const parentStyles = StyleSheet.flatten(this.props.style);
@@ -670,16 +673,16 @@ export default class ImageViewer extends React.Component<Props, State> {
           ...styles.container,
           ...parentStyles,
           width: this.props.cropWidth,
-          height: this.props.cropHeight
+          height: this.props.cropHeight,
         }}
-        {...this.imagePanResponder!.panHandlers}
+        {...this.imagePanResponder.panHandlers}
       >
-        <Animated.View style={animateConf} renderToHardwareTextureAndroid>
+        <Animated.View style={animateConf} renderToHardwareTextureAndroid={this.props.useHardwareTextureAndroid}>
           <View
             onLayout={this.handleLayout.bind(this)}
             style={{
               width: this.props.imageWidth,
-              height: this.props.imageHeight
+              height: this.props.imageHeight,
             }}
           >
             {this.props.children}
